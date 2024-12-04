@@ -7,25 +7,19 @@ import os
 
 class ChatBot:
     def __init__(self):
-        # Récupérer la clé API depuis les secrets de Streamlit
         self.client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         
         try:
-            # Vérifier l'existence des fichiers
             if not os.path.exists('embeddings_db/faiss_index.idx'):
                 raise FileNotFoundError("Index FAISS non trouvé")
             if not os.path.exists('embeddings_db/metadata.json'):
                 raise FileNotFoundError("Fichier metadata non trouvé")
             
-            # Charger l'index FAISS
             self.index = faiss.read_index('embeddings_db/faiss_index.idx')
             
-            # Charger les metadata
             with open('embeddings_db/metadata.json', 'r', encoding='utf-8') as f:
                 self.metadata = json.load(f)
                 
-            st.sidebar.success(f"Base de données chargée: {len(self.metadata)} documents")
-            
         except Exception as e:
             st.error(f"Erreur de chargement des données: {str(e)}")
             raise e
@@ -43,25 +37,13 @@ class ChatBot:
 
     def recherche_documents_pertinents(self, question, k=3):
         try:
-            # Obtenir l'embedding de la question
             question_embedding = self.get_query_embedding(question)
-            
-            # Rechercher les documents similaires
             D, I = self.index.search(question_embedding, k)
             
-            # Récupérer les documents trouvés
             documents = []
-            for i, idx in enumerate(I[0]):
+            for idx in I[0]:
                 if idx >= 0 and idx < len(self.metadata):
-                    doc = self.metadata[idx]
-                    doc['score'] = float(D[0][i])  # Ajouter le score de similarité
-                    documents.append(doc)
-            
-            # Afficher les documents trouvés dans la sidebar pour debug
-            st.sidebar.write(f"Documents trouvés: {len(documents)}")
-            for doc in documents:
-                st.sidebar.markdown(f"- {doc['title']} (score: {doc['score']:.2f})")
-            
+                    documents.append(self.metadata[idx])
             return documents
             
         except Exception as e:
@@ -70,9 +52,8 @@ class ChatBot:
 
     def generer_reponse(self, question, documents_pertinents):
         if not documents_pertinents:
-            return "Je n'ai pas trouvé de documents pertinents dans la base de données pour répondre à votre question."
+            return "Je ne trouve pas d'informations pertinentes pour répondre à votre question. Pourriez-vous la reformuler différemment ?"
             
-        # Préparer le contexte avec les URLs
         context = "\n\n".join([
             f"Titre: {doc.get('title', '')}\n"
             f"URL: {doc.get('url', '')}\n"
@@ -80,12 +61,13 @@ class ChatBot:
             for doc in documents_pertinents
         ])
         
-        system_prompt = """Tu es un assistant expert chargé d'aider les utilisateurs à naviguer sur notre site web.
+        system_prompt = """Tu es Claude, un assistant expert et professionnel. 
         Instructions:
-        1. Base tes réponses UNIQUEMENT sur les documents fournis dans le contexte
-        2. Cite les URLs pertinentes dans ta réponse
-        3. Si l'information n'est pas dans le contexte, indique-le clairement
-        4. Formule des réponses naturelles et précises"""
+        1. Réponds de manière naturelle et engageante, comme dans une vraie conversation
+        2. Structure tes réponses avec des paragraphes clairs et aérés
+        3. Base-toi uniquement sur le contexte fourni
+        4. Si pertinent, mentionne les sources disponibles en les intégrant naturellement
+        5. Si l'information n'est pas dans le contexte, propose de reformuler la question"""
 
         try:
             response = self.client.chat.completions.create(
@@ -99,35 +81,62 @@ class ChatBot:
             )
             return response.choices[0].message.content
         except Exception as e:
-            return f"Désolé, une erreur s'est produite: {str(e)}"
+            return "Je rencontre actuellement des difficultés techniques. Pourriez-vous réessayer dans quelques instants ?"
 
     def answer_question(self, question):
-        """
-        Méthode principale pour répondre aux questions
-        """
         try:
-            # Rechercher les documents pertinents
             docs = self.recherche_documents_pertinents(question)
-            
-            # Générer la réponse
             response = self.generer_reponse(question, docs)
-            
             return response, docs
         except Exception as e:
-            return f"Erreur: {str(e)}", []
+            return "Je suis désolé, je ne peux pas traiter votre demande pour le moment.", []
 
 # Configuration de la page
-st.set_page_config(page_title="Assistant IA", page_icon="🤖", layout="wide")
+st.set_page_config(
+    page_title="Assistant IA",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# Style CSS pour améliorer l'affichage
+# Style CSS amélioré
 st.markdown("""
 <style>
-    .source-info {
-        font-size: 0.85em;
-        color: #666;
-        border-left: 3px solid #4CAF50;
-        padding-left: 10px;
-        margin-top: 5px;
+    .chat-container {
+        margin-bottom: 20px;
+    }
+    .message {
+        padding: 15px;
+        border-radius: 10px;
+        margin: 10px 0;
+        line-height: 1.5;
+    }
+    .user-message {
+        background-color: #f0f2f6;
+        border-left: 4px solid #2196F3;
+    }
+    .assistant-message {
+        background-color: #ffffff;
+        border-left: 4px solid #4CAF50;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .sources-section {
+        font-size: 0.9em;
+        margin-top: 10px;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+    }
+    .source-link {
+        color: #1976D2;
+        text-decoration: none;
+        margin-right: 10px;
+    }
+    .source-link:hover {
+        text-decoration: underline;
+    }
+    .stButton>button {
+        width: 100%;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -136,27 +145,25 @@ st.markdown("""
 if 'messages' not in st.session_state:
     st.session_state.messages = []
     
-# Initialisation du chatbot
 if 'chatbot' not in st.session_state:
     try:
         st.session_state.chatbot = ChatBot()
     except Exception as e:
-        st.error("Impossible d'initialiser le chatbot. Vérifiez vos fichiers de données.")
+        st.error("Impossible d'initialiser le système. Veuillez réessayer ultérieurement.")
         st.stop()
 
 # Interface principale
-st.title("💬 Assistant Site Web")
-st.markdown("Je peux vous aider à trouver les informations sur notre site !")
+st.title("💬 Assistant virtuel")
+st.markdown("Bonjour ! Je suis là pour vous aider à trouver les informations dont vous avez besoin. Que puis-je faire pour vous ?")
 
 # Zone de saisie
-user_input = st.text_input("Votre question:")
+user_input = st.text_input("", placeholder="Posez votre question ici...")
 
 # Traitement de la question
 if user_input:
     try:
         response, docs = st.session_state.chatbot.answer_question(user_input)
         
-        # Ajouter à l'historique
         st.session_state.messages.append({
             "role": "user", 
             "content": user_input
@@ -168,26 +175,40 @@ if user_input:
         })
         
     except Exception as e:
-        st.error(f"Une erreur s'est produite: {str(e)}")
+        st.error("Je rencontre des difficultés techniques. Merci de réessayer.")
 
 # Affichage de l'historique
 for msg in st.session_state.messages:
     if msg["role"] == "user":
-        st.markdown(f"**Vous:** {msg['content']}")
+        st.markdown(f"""
+        <div class="message user-message">
+            <strong>Vous :</strong><br>
+            {msg['content']}
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.markdown(f"**Assistant:** {msg['content']}")
+        sources_html = ""
         if "documents" in msg and msg["documents"]:
-            with st.expander("Sources utilisées"):
-                for doc in msg["documents"]:
-                    st.markdown(f"""
-                    <div class="source-info">
-                        <strong>{doc['title']}</strong><br>
-                        <a href="{doc['url']}" target="_blank">{doc['url']}</a>
-                    </div>
-                    """, unsafe_allow_html=True)
-    st.markdown("---")
+            sources_html = """
+            <div class="sources-section">
+                <strong>📚 Sources consultées :</strong><br>
+                """ + " | ".join([f"""<a href="{doc['url']}" target="_blank" class="source-link">{doc['title']}</a>""" 
+                                 for doc in msg["documents"]]) + """
+            </div>
+            """
+            
+        st.markdown(f"""
+        <div class="message assistant-message">
+            <strong>Assistant :</strong><br>
+            {msg['content']}
+            {sources_html}
+        </div>
+        """, unsafe_allow_html=True)
 
-# Bouton pour effacer l'historique
-if st.button("Effacer l'historique"):
-    st.session_state.messages = []
-    st.rerun()
+# Footer avec bouton de réinitialisation
+st.markdown("---")
+cols = st.columns([3, 1, 3])
+with cols[1]:
+    if st.button("🔄 Nouvelle conversation"):
+        st.session_state.messages = []
+        st.rerun()
