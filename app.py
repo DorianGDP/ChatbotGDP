@@ -6,8 +6,9 @@ from openai import OpenAI
 import os
 
 class ChatBot:
-    def __init__(self, api_key):
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self):
+        # Récupérer la clé API depuis les secrets de Streamlit
+        self.client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         
         try:
             # Charger l'index FAISS
@@ -31,7 +32,6 @@ class ChatBot:
             question_embedding = self.get_query_embedding(question)
             D, I = self.index.search(question_embedding, k)
             
-            # Vérifier si les indices sont valides
             valid_docs = []
             for idx in I[0]:
                 if idx >= 0 and idx < len(self.metadata):
@@ -68,36 +68,43 @@ class ChatBot:
         except Exception as e:
             return f"Désolé, une erreur s'est produite: {str(e)}"
 
+    def answer_question(self, question):
+        """
+        Méthode principale pour répondre aux questions
+        """
+        try:
+            docs = self.recherche_documents_pertinents(question)
+            response = self.generer_reponse(question, docs)
+            return response
+        except Exception as e:
+            return f"Erreur: {str(e)}"
+
 # Configuration de la page
 st.set_page_config(page_title="Assistant IA", page_icon="🤖")
 
 # Initialisation de la session state
 if 'messages' not in st.session_state:
     st.session_state.messages = []
+    
+# Initialisation du chatbot (une seule fois)
+if 'chatbot' not in st.session_state:
+    st.session_state.chatbot = ChatBot()
 
 # Interface utilisateur
 st.title("💬 Assistant IA")
 st.markdown("Posez vos questions, je suis là pour vous aider !")
 
-# Sidebar pour la configuration
-with st.sidebar:
-    api_key = st.text_input("OpenAI API Key", type="password")
-
 # Zone de saisie
 user_input = st.text_input("Votre question:")
 
 # Traitement de la question
-if user_input and api_key:
+if user_input:
     try:
-        chatbot = ChatBot(api_key)
-        response, _ = chatbot.repondre_question(user_input)
+        response = st.session_state.chatbot.answer_question(user_input)
         
         # Ajouter à l'historique
         st.session_state.messages.append({"role": "user", "content": user_input})
         st.session_state.messages.append({"role": "assistant", "content": response})
-        
-        # Vider le champ de saisie
-        st.text_input("Votre question:", value="", key="clear_input")
         
     except Exception as e:
         st.error(f"Une erreur s'est produite: {str(e)}")
