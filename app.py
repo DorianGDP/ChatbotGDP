@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import faiss
 import numpy as np
@@ -10,13 +9,16 @@ class ChatBot:
     def __init__(self, api_key):
         self.client = OpenAI(api_key=api_key)
         
-        # Charger l'index FAISS
-        self.index = faiss.read_index('embeddings_db/faiss_index.idx')
-        
-        # Charger les metadata
-        with open('embeddings_db/metadata.json', 'r', encoding='utf-8') as f:
-            self.metadata = json.load(f)
-
+        try:
+            # Charger l'index FAISS
+            self.index = faiss.read_index('embeddings_db/faiss_index.idx')
+            
+            # Charger les metadata
+            with open('embeddings_db/metadata.json', 'r', encoding='utf-8') as f:
+                self.metadata = json.load(f)
+        except Exception as e:
+            st.error(f"Erreur de chargement des données: {str(e)}")
+            
     def get_query_embedding(self, question):
         response = self.client.embeddings.create(
             model="text-embedding-ada-002",
@@ -25,22 +27,32 @@ class ChatBot:
         return np.array(response.data[0].embedding, dtype='float32').reshape(1, -1)
 
     def recherche_documents_pertinents(self, question, k=3):
-        question_embedding = self.get_query_embedding(question)
-        D, I = self.index.search(question_embedding, k)
-        return [self.metadata[idx] for idx in I[0]]
+        try:
+            question_embedding = self.get_query_embedding(question)
+            D, I = self.index.search(question_embedding, k)
+            
+            # Vérifier si les indices sont valides
+            valid_docs = []
+            for idx in I[0]:
+                if idx >= 0 and idx < len(self.metadata):
+                    valid_docs.append(self.metadata[idx])
+            return valid_docs
+        except Exception as e:
+            st.error(f"Erreur de recherche: {str(e)}")
+            return []
 
     def generer_reponse(self, question, documents_pertinents):
+        if not documents_pertinents:
+            return "Je n'ai pas trouvé de documents pertinents pour répondre à votre question."
+            
         context = "\n\n".join([
-            f"Titre: {doc['title']}\nContenu: {doc['content']}\nURL: {doc['url']}" 
+            f"Titre: {doc.get('title', '')}\nContenu: {doc.get('content', '')}" 
             for doc in documents_pertinents
         ])
         
-        system_prompt = """Tu es un assistant virtuel expert chargé d'aider les utilisateurs à naviguer sur notre site web. 
-        Tu dois:
-        1. Fournir des réponses précises basées uniquement sur le contenu fourni
-        2. Inclure systématiquement les URLs pertinentes dans ta réponse
-        3. Indiquer clairement si tu ne trouves pas l'information dans le contexte
-        4. Formuler des réponses naturelles et engageantes"""
+        system_prompt = """Tu es un assistant virtuel expert. 
+        Réponds de manière précise et naturelle en te basant uniquement sur le contexte fourni.
+        Si tu ne trouves pas l'information dans le contexte, indique-le clairement."""
 
         try:
             response = self.client.chat.completions.create(
@@ -52,104 +64,53 @@ class ChatBot:
                 temperature=0.7,
                 max_tokens=500
             )
-            
             return response.choices[0].message.content
-            
         except Exception as e:
-            return f"Erreur lors de la génération de la réponse: {str(e)}"
+            return f"Désolé, une erreur s'est produite: {str(e)}"
 
-    def repondre_question(self, question):
-        docs_pertinents = self.recherche_documents_pertinents(question)
-        reponse = self.generer_reponse(question, docs_pertinents)
-        return reponse, docs_pertinents
-
-# Configuration de la page Streamlit
-st.set_page_config(page_title="Assistant Site Web", page_icon="🤖", layout="wide")
-
-# Style CSS personnalisé
-st.markdown("""
-<style>
-    .chat-message {
-        padding: 1.5rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-        display: flex;
-        flex-direction: column;
-    }
-    .user-message {
-        background-color: #e6f3ff;
-        border-left: 5px solid #2196F3;
-    }
-    .bot-message {
-        background-color: #f8f9fa;
-        border-left: 5px solid #4CAF50;
-    }
-    .source-link {
-        font-size: 0.8rem;
-        color: #666;
-        margin-top: 0.5rem;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Configuration de la page
+st.set_page_config(page_title="Assistant IA", page_icon="🤖")
 
 # Initialisation de la session state
 if 'messages' not in st.session_state:
-    st.session_state['messages'] = []
+    st.session_state.messages = []
 
-# Titre de l'application
-st.title("💬 Assistant Site Web")
-st.markdown("Posez vos questions sur notre site web !")
+# Interface utilisateur
+st.title("💬 Assistant IA")
+st.markdown("Posez vos questions, je suis là pour vous aider !")
 
-# Sidebar pour les paramètres
+# Sidebar pour la configuration
 with st.sidebar:
-    st.title("⚙️ Configuration")
     api_key = st.text_input("OpenAI API Key", type="password")
-    st.markdown("---")
-    st.markdown("### À propos")
-    st.markdown("Cet assistant utilise GPT-4 et la recherche sémantique pour répondre à vos questions.")
-
-# Zone de chat principale
-chat_container = st.container()
 
 # Zone de saisie
-question = st.text_input("Votre question:", key="question_input")
+user_input = st.text_input("Votre question:")
 
-if question and api_key:
-    # Initialiser le chatbot
-    chatbot = ChatBot(api_key)
-    
-    # Obtenir la réponse
-    reponse, sources = chatbot.repondre_question(question)
-    
-    # Ajouter les messages à l'historique
-    st.session_state['messages'].append({"role": "user", "content": question})
-    st.session_state['messages'].append({"role": "assistant", "content": reponse, "sources": sources})
+# Traitement de la question
+if user_input and api_key:
+    try:
+        chatbot = ChatBot(api_key)
+        response, _ = chatbot.repondre_question(user_input)
+        
+        # Ajouter à l'historique
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        
+        # Vider le champ de saisie
+        st.text_input("Votre question:", value="", key="clear_input")
+        
+    except Exception as e:
+        st.error(f"Une erreur s'est produite: {str(e)}")
 
-# Afficher l'historique des messages
-with chat_container:
-    for msg in st.session_state['messages']:
-        if msg["role"] == "user":
-            st.markdown(f"""
-            <div class="chat-message user-message">
-                <div><strong>Vous:</strong> {msg["content"]}</div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="chat-message bot-message">
-                <div><strong>Assistant:</strong> {msg["content"]}</div>
-                <div class="source-link">
-                    <strong>Sources consultées:</strong>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Afficher les sources dans un expander
-            with st.expander("Voir les sources"):
-                for source in msg.get("sources", []):
-                    st.markdown(f"- [{source['title']}]({source['url']})")
+# Affichage de l'historique
+for msg in st.session_state.messages:
+    if msg["role"] == "user":
+        st.markdown(f"**Vous:** {msg['content']}")
+    else:
+        st.markdown(f"**Assistant:** {msg['content']}")
+    st.markdown("---")
 
 # Bouton pour effacer l'historique
 if st.button("Effacer l'historique"):
-    st.session_state['messages'] = []
-    st.experimental_rerun()
+    st.session_state.messages = []
+    st.rerun()
