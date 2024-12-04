@@ -4,3 +4,4 @@ openai
 numpy
 pandas
 scikit-learn
+streamlit
