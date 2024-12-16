@@ -1,5 +1,5 @@
 # cloud_migration.py
-import pinecone
+from pinecone import Pinecone
 import pymongo
 from tqdm import tqdm
 import faiss
@@ -10,14 +10,20 @@ def migrate_to_cloud(pinecone_api_key, mongo_uri):
     """
     Migre les données locales vers le cloud
     """
-    # Initialiser Pinecone
-    pinecone.init(api_key=PINECONE_API_KEY, environment="gcp-starter")  # Environnement gratuit
+    # Initialiser Pinecone avec la nouvelle API
+    pc = Pinecone(api_key=pinecone_api_key)
     
     # Créer un index Pinecone si nécessaire
-    if "my-docs" not in pinecone.list_indexes():
-        pinecone.create_index("my-docs", dimension=1536)
+    index_name = "my-docs"
+    if index_name not in [index.name for index in pc.list_indexes()]:
+        pc.create_index(
+            name=index_name,
+            dimension=1536,
+            metric="cosine",
+            spec={"serverless": {"cloud": "aws", "region": "us-west-2"}}
+        )
     
-    index = pinecone.Index("my-docs")
+    index = pc.Index(index_name)
     
     # Charger les données locales
     faiss_index = faiss.read_index('embeddings_db/faiss_index.idx')
@@ -28,9 +34,13 @@ def migrate_to_cloud(pinecone_api_key, mongo_uri):
     vectors = faiss_index.reconstruct_n(0, faiss_index.ntotal)
     
     # Connexion à MongoDB
-    client = pymongo.MongoClient(MONGO_URI)
+    client = pymongo.MongoClient(mongo_uri)
     db = client.chatbot_db
     meta_collection = db.metadata
+    
+    # Nettoyer les collections existantes
+    meta_collection.delete_many({})
+    index.delete(delete_all=True)
     
     # Migration par lots
     batch_size = 100
@@ -54,8 +64,10 @@ def migrate_to_cloud(pinecone_api_key, mongo_uri):
         meta_collection.insert_many(batch_metadata)
     
     print("Migration terminée!")
+    print(f"- {len(vectors)} vecteurs migrés vers Pinecone")
+    print(f"- {len(metadata)} documents sauvegardés dans MongoDB")
 
 if __name__ == "__main__":
-    pinecone_api_key = PINECONE_API_KEY
-    mongo_uri = MONGO_URI
+    pinecone_api_key = "pcsk_9coPz_9U1G4VhXwbfPKYapvRGdXQhCBMhxU7LYwbZny8g5hGmemT7pUGaj3ZV6gKFwaWF"
+    mongo_uri = "mongodb+srv://dorianmarty:Marty2024!@clustergdp.mq5yk.mongodb.net/?retryWrites=true&w=majority&appName=ClusterGDP"
     migrate_to_cloud(pinecone_api_key, mongo_uri)
