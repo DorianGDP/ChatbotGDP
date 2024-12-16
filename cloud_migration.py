@@ -11,7 +11,7 @@ def migrate_to_cloud(pinecone_api_key, mongo_uri):
     Migre les données locales vers le cloud
     """
     # Initialiser Pinecone
-    pinecone.init(api_key=pinecone_api_key, environment="gcp-starter")  # Environnement gratuit
+    pinecone.init(api_key=PINECONE_API_KEY, environment="gcp-starter")  # Environnement gratuit
     
     # Créer un index Pinecone si nécessaire
     if "my-docs" not in pinecone.list_indexes():
@@ -28,7 +28,7 @@ def migrate_to_cloud(pinecone_api_key, mongo_uri):
     vectors = faiss_index.reconstruct_n(0, faiss_index.ntotal)
     
     # Connexion à MongoDB
-    client = pymongo.MongoClient(mongo_uri)
+    client = pymongo.MongoClient(MONGO_URI)
     db = client.chatbot_db
     meta_collection = db.metadata
     
@@ -56,6 +56,6 @@ def migrate_to_cloud(pinecone_api_key, mongo_uri):
     print("Migration terminée!")
 
 if __name__ == "__main__":
-    pinecone_api_key = "pcsk_9coPz_9U1G4VhXwbfPKYapvRGdXQhCBMhxU7LYwbZny8g5hGmemT7pUGaj3ZV6gKFwaWF"
-    mongo_uri = "mongodb+srv://dorianmarty:Marty2024!@clustergdp.mq5yk.mongodb.net/?retryWrites=true&w=majority&appName=ClusterGDP"
+    pinecone_api_key = PINECONE_API_KEY
+    mongo_uri = MONGO_URI
     migrate_to_cloud(pinecone_api_key, mongo_uri)
