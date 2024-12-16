@@ -3,24 +3,38 @@ import streamlit as st
 from pinecone import Pinecone
 from openai import OpenAI
 import pymongo
-import os
 
 class CloudChatbot:
     def __init__(self, pinecone_api_key, openai_api_key, mongo_uri):
-        # Initialisation des clients
-        self.pc = Pinecone(api_key=pinecone_api_key)
-        self.index = self.pc.Index("my-docs")  # Assurez-vous que ce nom correspond à votre index
-        self.openai_client = OpenAI(api_key=openai_api_key)
-        self.mongo_client = pymongo.MongoClient(mongo_uri)
-        self.db = self.mongo_client.chatbot_db
+        """
+        Initialise le chatbot avec les connexions cloud
+        """
+        try:
+            # Initialisation de Pinecone
+            self.pc = Pinecone(api_key=pinecone_api_key)
+            self.index = self.pc.Index("chatbotgdp")
+            
+            # Initialisation d'OpenAI
+            self.openai_client = OpenAI(api_key=openai_api_key)
+            
+            # Initialisation de MongoDB
+            self.mongo_client = pymongo.MongoClient(mongo_uri)
+            self.db = self.mongo_client.chatbot_db
+        except Exception as e:
+            st.error(f"Erreur d'initialisation des services: {str(e)}")
+            raise
         
     def get_query_embedding(self, question):
         """Génère l'embedding pour une question"""
-        response = self.openai_client.embeddings.create(
-            model="text-embedding-ada-002",
-            input=question
-        )
-        return response.data[0].embedding
+        try:
+            response = self.openai_client.embeddings.create(
+                model="text-embedding-ada-002",
+                input=question
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            st.error(f"Erreur lors de la création de l'embedding: {str(e)}")
+            raise
         
     def recherche_documents(self, question, k=3):
         """Recherche les documents pertinents"""
