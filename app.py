@@ -1,55 +1,38 @@
 # app.py
 import streamlit as st
-from pinecone import Pinecone
+from pinecone import Pinecone, Config
 from openai import OpenAI
 import pymongo
 
 class CloudChatbot:
     def __init__(self, pinecone_api_key, openai_api_key, mongo_uri):
-        """
-        Initialise le chatbot avec les connexions cloud
-        """
-        try:
-            # Initialisation de Pinecone
-            self.pc = Pinecone(api_key=pinecone_api_key)
-            self.index = self.pc.Index("chatbotgdp")
-            
-            # Initialisation d'OpenAI
-            self.openai_client = OpenAI(api_key=openai_api_key)
-            
-            # Initialisation de MongoDB
-            self.mongo_client = pymongo.MongoClient(mongo_uri)
-            self.db = self.mongo_client.chatbot_db
-        except Exception as e:
-            st.error(f"Erreur d'initialisation des services: {str(e)}")
-            raise
-        
+        # Initialisation des clients
+        self.pc = Pinecone(
+            api_key=pinecone_api_key,
+            config=Config(cloud="gcp-starter")
+        )
+        self.index = self.pc.Index("my-docs")
+        self.openai_client = OpenAI(api_key=openai_api_key)
+        self.mongo_client = pymongo.MongoClient(mongo_uri)
+        self.db = self.mongo_client.chatbot_db
+
+    # Le reste de la classe reste identique...
     def get_query_embedding(self, question):
-        """Génère l'embedding pour une question"""
-        try:
-            response = self.openai_client.embeddings.create(
-                model="text-embedding-ada-002",
-                input=question
-            )
-            return response.data[0].embedding
-        except Exception as e:
-            st.error(f"Erreur lors de la création de l'embedding: {str(e)}")
-            raise
+        response = self.openai_client.embeddings.create(
+            model="text-embedding-ada-002",
+            input=question
+        )
+        return response.data[0].embedding
         
     def recherche_documents(self, question, k=3):
-        """Recherche les documents pertinents"""
         try:
-            # Obtenir l'embedding de la question
             query_embedding = self.get_query_embedding(question)
-            
-            # Rechercher dans Pinecone
             results = self.index.query(
                 vector=query_embedding,
                 top_k=k,
                 include_metadata=True
             )
             
-            # Récupérer les métadonnées complètes depuis MongoDB
             docs = []
             for match in results['matches']:
                 doc_id = match['metadata']['doc_id']
@@ -64,12 +47,10 @@ class CloudChatbot:
             return []
         
     def generer_reponse(self, question, docs):
-        """Génère une réponse basée sur les documents trouvés"""
         try:
             if not docs:
                 return "Je suis désolé, mais je n'ai pas trouvé de documents pertinents pour répondre à votre question."
                 
-            # Préparer le contexte
             context = "\n\n".join([
                 f"Titre: {doc['title']}\nContenu: {doc['content']}\nURL: {doc['url']}"
                 for doc in docs
@@ -89,6 +70,8 @@ class CloudChatbot:
         except Exception as e:
             st.error(f"Erreur lors de la génération de la réponse: {str(e)}")
             return "Désolé, une erreur est survenue lors de la génération de la réponse."
+
+# Le reste du code reste identique...
 
 def initialize_session_state():
     """Initialise l'état de la session Streamlit"""
